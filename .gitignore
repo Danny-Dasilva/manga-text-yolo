@@ -7,10 +7,9 @@
 *.tar
 
 wandb
-data/
 runs/
 outputs/
-models/
+/models/
 .venv/
 .claude/cache/
 .serena/
@@ -19,3 +18,18 @@ models/
 __pycache__
 .vscode
 *.egg-info/
+
+# Data — large files go to NAS, not git
+data/merged_train/
+data/merged_val/
+data/animetext/
+data/animetext_val/
+data/backup/
+data/dataset/
+data/fonts/
+data/font_statics*
+data/examples/annotations/*
+# Keep data configs and docs
+!data/*.yaml
+!data/*.md
+!data/DATASET_README.md
