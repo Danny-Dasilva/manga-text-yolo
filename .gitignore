@@ -7,10 +7,15 @@
 *.tar
 
 wandb
-data/backup
-data/dataset
-data/fonts
-data/font_statics*
-data/examples/annotations/*
+data/
+runs/
+outputs/
+models/
+.venv/
+.claude/cache/
+.serena/
+.tldr/
+.tldrignore
 __pycache__
 .vscode
+*.egg-info/

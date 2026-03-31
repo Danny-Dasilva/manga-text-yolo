@@ -1,0 +1,91 @@
+---
+session: yolo26-migration
+date: 2026-01-16
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Migrate comic-text-detector from YOLOv10 to YOLO26s backbone
+now: Wait for Phase 2 to complete, then generate hierarchical annotations from original model
+
+test: python -c "from src.models.backbone import create_backbone; b = create_backbone('yolo26s.pt'); print('YOLO26 works')"
+
+done_this_session:
+  - task: Integrated YOLO26s backbone support
+    files: [src/models/backbone.py, src/models/detector.py, scripts/train.py, requirements.txt]
+  - task: Completed Phase 1 (Segmentation) training
+    files: [runs/segmentation_yolo26/best.pt]
+  - task: Started Phase 2 (Detection/DBNet) training
+    files: [runs/detection_yolo26/best.pt]
+  - task: Created test generation visualization script
+    files: [scripts/test_generation.py]
+  - task: Identified dataset annotation issue
+    files: []
+
+blockers:
+  - AnimeText dataset has flat annotations (no speech bubble hierarchy)
+  - Phase 3 will learn same regions as Phase 2 without proper block annotations
+
+questions:
+  - Should we generate hierarchical annotations from original model before Phase 3?
+  - Or continue with current flat annotations and accept different output structure?
+
+decisions:
+  - yolo26s_over_rfdetr: YOLO26s chosen over RF-DETR due to architecture compatibility with existing heads
+  - keep_3phase_pipeline: Maintained 3-phase training (seg→det→block) for modularity
+
+findings:
+  - original_model_outputs: "blk:[1,64512,7] seg:[1,1,1024,1024] det:[1,2,1024,1024]"
+  - animetext_flat: "line-*.txt and *.txt contain same text regions, not hierarchical"
+  - yolo26_channels: "P2:128, P3:256, P4:256, P5:512 (different from v10)"
+  - phase1_metrics: "IoU:0.825, F1:0.901, Precision:0.887, Recall:0.926"
+
+worked:
+  - YOLO26 backbone auto-detects channel dimensions via test forward pass
+  - Existing heads work unchanged with new backbone
+  - Phase 1 converged well with early stopping at epoch 69
+
+failed:
+  - Initial test_generation.py applied sigmoid twice (model output already normalized)
+
+next:
+  - Wait for Phase 2 to complete (~160 epochs, ~10-12 hours remaining)
+  - Create script to generate hierarchical block annotations from original model
+  - Retrain Phase 3 with proper speech bubble annotations
+  - Generate final test visualizations with all 3 outputs
+
+files:
+  created:
+    - scripts/test_generation.py
+    - thoughts/handoffs/yolo26_migration_handoff.md
+  modified:
+    - src/models/backbone.py
+    - src/models/detector.py
+    - scripts/train.py
+    - requirements.txt
+    - CLAUDE.md
+
+training_status:
+  phase1:
+    status: complete
+    checkpoint: runs/segmentation_yolo26/best.pt
+    epochs: 69/100 (early stopped)
+    val_loss: 0.2516
+  phase2:
+    status: in_progress
+    checkpoint: runs/detection_yolo26/best.pt
+    epochs: ~20/160
+    background_task: b8c4ad0
+    log_file: /tmp/claude/-home-danny-Documents-personal-extension-training/tasks/b8c4ad0.output
+  phase3:
+    status: pending
+    note: Need hierarchical annotations from original model
+
+commands:
+  check_phase2: "tail -3 /tmp/claude/-home-danny-Documents-personal-extension-training/tasks/b8c4ad0.output | tr '\\r' '\\n' | tail -1"
+  tensorboard: "tensorboard --logdir runs --port 6007"
+  start_phase3: |
+    python scripts/train.py --mode block --backbone yolo26s.pt \
+      --checkpoint runs/detection_yolo26/best.pt --freeze-seg --freeze-det \
+      --img-dirs data/merged_train/images --block-ann-dirs data/merged_train/annotations \
+      --epochs 50 --batch-size 8 --save-dir runs/block_yolo26

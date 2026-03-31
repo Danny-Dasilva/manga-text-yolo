@@ -1,0 +1,66 @@
+---
+session: comic-text-detector-training-refactor
+date: 2026-01-19
+status: complete
+outcome: PARTIAL_PLUS
+---
+
+goal: Implement hybrid unified training as default training mode (replaces 3-phase)
+now: Run unified training to verify end-to-end, then test combined_inference.py
+test: |
+  source .venv/bin/activate && python -m pytest tests/test_unified_training.py -v --override-ini="addopts="
+
+done_this_session:
+  - task: Added unified training fields to TrainingConfig (unified_mode=True default)
+    files: [src/training/trainer.py:58-66]
+  - task: Verified UnifiedLoss class already exists, fixed 'boxes' vs 'bboxes' key handling
+    files: [src/training/losses.py:1020-1028]
+  - task: Verified TEXTDET_UNIFIED forward mode and train_unified() already exist
+    files: [src/models/heads.py:23, 879-906, 956-975]
+  - task: Added differential LR optimizer support for phase 2
+    files: [src/training/trainer.py:492-542]
+  - task: Added _is_backbone_frozen() and _check_phase_transition() methods
+    files: [src/training/trainer.py:544-593]
+  - task: Modified Trainer init order (phase setup BEFORE optimizer creation)
+    files: [src/training/trainer.py:388-424]
+  - task: Added automatic phase transition check in training loop
+    files: [src/training/trainer.py:904-905, 892-909]
+  - task: Updated test to expect unified_mode=True and check initial_lr
+    files: [tests/test_unified_training.py:38, 294-306]
+
+blockers: []
+
+questions:
+  - Should ProgLoss (dynamic loss weighting) from YOLO26 be implemented?
+  - Should STAL (small-target-aware label assignment) be added?
+  - GT is block-level but model detects line-level - accept or re-annotate?
+
+decisions:
+  - unified_default: Made unified_mode=True the default, no CLI args needed
+  - differential_lr: Phase 2 uses backbone_lr=1e-5, head_lr=1e-4
+  - phase_setup_order: Moved _setup_training_phase BEFORE _create_optimizer to ensure correct requires_grad state
+
+findings:
+  - init_order_matters: Optimizer must be created AFTER phase setup for differential LR to work
+  - scheduler_modifies_lr: Tests must check initial_lr not lr after scheduler warmup
+  - boxes_vs_bboxes: UnifiedLoss must support both 'boxes' and 'bboxes' target keys
+
+worked:
+  - All 22 unified training tests pass
+  - Differential LR creates 2 param groups (381 backbone, 199 head params)
+  - Phase transition logic correctly detects epoch threshold
+
+failed:
+  - Background agent (a3cd268) added CLI args which user didn't want
+
+next:
+  - Run unified training end-to-end to verify
+  - Test combined_inference.py with new model
+  - Consider implementing ProgLoss and STAL from YOLO26
+
+files:
+  created: []
+  modified:
+    - src/training/trainer.py
+    - src/training/losses.py
+    - tests/test_unified_training.py

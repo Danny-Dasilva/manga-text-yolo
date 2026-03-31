@@ -1,0 +1,200 @@
+================================================================================
+COMIC TEXT DETECTOR - ARCHITECTURE VALIDATION QUICK REFERENCE
+================================================================================
+
+VALIDATION DATE: 2026-01-16
+OVERALL STATUS:  NEEDS REVIEW ⚠️
+
+================================================================================
+SUMMARY OF FINDINGS
+================================================================================
+
+OUTPUT COMPATIBILITY:
+
+┌─────────────────┬──────────────┬──────────────┬──────────┐
+│ Output          │ Original     │ Our Model    │ Status   │
+├─────────────────┼──────────────┼──────────────┼──────────┤
+│ seg (mask)      │ (1,1,1024,   │ (1,1,1024,   │ ✅       │
+│                 │  1024)       │  1024)       │ MATCH    │
+├─────────────────┼──────────────┼──────────────┼──────────┤
+│ det (lines)     │ (1,2,1024,   │ (1,2,1024,   │ ✅       │
+│                 │  1024)       │  1024)       │ MATCH    │
+├─────────────────┼──────────────┼──────────────┼──────────┤
+│ blk (blocks)    │ (1,64512,7)  │ (1,64512,6)  │ ❌       │
+│                 │              │              │ MISMATCH │
+└─────────────────┴──────────────┴──────────────┴──────────┘
+
+CRITICAL ISSUE:
+  • Block detection outputs 6 values per detection: (x, y, w, h, conf, cls)
+  • Original outputs 7 values per detection: (?, ?, ?, ?, ?, ?, ?)
+  • Missing 7th value - could be: anchor index, refinement score, or auxiliary metric
+  • Grid point calculation is correct (64,512 total points) ✓
+
+================================================================================
+WHAT'S CORRECT ✅
+================================================================================
+
+1. SEGMENTATION MASK (seg)
+   ✓ Output shape: (1, 1, 1024, 1024)
+   ✓ Sigmoid activation: [0.0, 1.0]
+   ✓ Implementation: UnetHead class (src/models/heads.py:336-424)
+   
+2. TEXT LINE DETECTION (det)
+   ✓ Output shape: (1, 2, 1024, 1024)
+   ✓ Two channels: [shrink_map, threshold_map]
+   ✓ Sigmoid activations on both
+   ✓ Implementation: DBHead class (src/models/heads.py:426-534)
+
+================================================================================
+WHAT'S WRONG ❌
+================================================================================
+
+BLOCK DETECTION (blk)
+   ✗ Current output: (B, 64512, 6)
+   ✗ Expected output: (B, 64512, 7)
+   ✗ Missing: 7th value per detection
+   ✗ Implementation: BlockDetector class (src/models/heads.py:536-712)
+
+   What we have:
+   ├─ Position 0-1: x, y (normalized 0-1)
+   ├─ Position 2-3: w, h (normalized 0-1)
+   ├─ Position 4: confidence score
+   └─ Position 5: class score
+
+   What we need:
+   ├─ Positions 0-5: Same as above
+   └─ Position 6: UNKNOWN (reverse engineering required)
+
+================================================================================
+GRID BREAKDOWN
+================================================================================
+
+For 1024×1024 input:
+
+P3 (stride 8):
+  128 × 128 cells = 16,384 cells
+  × 3 anchors = 49,152 predictions
+
+P4 (stride 16):
+  64 × 64 cells = 4,096 cells
+  × 3 anchors = 12,288 predictions
+
+P5 (stride 32):
+  32 × 32 cells = 1,024 cells
+  × 3 anchors = 3,072 predictions
+
+TOTAL: 64,512 predictions ✓ (matches original)
+
+================================================================================
+ACTION ITEMS
+================================================================================
+
+PRIORITY 1 (CRITICAL): Fix Block Detection Output
+  □ Determine what the 7th value represents
+  □ Modify BlockDetector to output 7 values instead of 6
+  □ Update export wrapper (scripts/export.py) if needed
+  
+  File: src/models/heads.py (BlockDetector class)
+  Method: _decode_predictions() at line 605
+  
+  Options:
+    A) Add anchor index as 7th value
+    B) Add refinement score from dual-head
+    C) Reverse-engineer original model to find 7th value
+
+PRIORITY 2 (HIGH): Test & Validate
+  □ Export model and check ONNX output shapes
+  □ Compare inference results with original model
+  □ Run visualize_comparison.py script
+  
+  Commands:
+    python -c "import onnx; m=onnx.load('models/detector.onnx'); 
+               [print(f'{o.name}: {[d.dim_value for d in o.type.tensor_type.shape.dim]}') 
+                for o in m.graph.output]"
+
+PRIORITY 3 (MEDIUM): Update Documentation
+  □ Update model specs
+  □ Update training pipeline docs
+  □ Update inference code if needed
+
+================================================================================
+INVESTIGATION STEPS
+================================================================================
+
+1. Inspect Original Model
+   python -c "
+   import onnxruntime as rt
+   sess = rt.InferenceSession('data/comic-text-detector.onnx')
+   x = np.random.randn(1,3,1024,1024).astype(np.float32)
+   outputs = sess.run(None, {'images': x})
+   blk = outputs[0]  # (1, 64512, 7)
+   
+   # Analyze 7th channel
+   print(f'Channel 6 min/max: {blk[0,:,6].min():.3f} / {blk[0,:,6].max():.3f}')
+   print(f'Channel 6 mean: {blk[0,:,6].mean():.3f}')
+   "
+
+2. Analyze Model Graph
+   Use netron.app to visualize original model ONNX graph
+   Look for auxiliary branches or outputs feeding into blk
+
+3. Compare Inference
+   Use visualize_comparison.py to see detection differences
+
+================================================================================
+CODE LOCATIONS
+================================================================================
+
+UnetHead (CORRECT ✅)
+  File: src/models/heads.py
+  Lines: 336-424
+  Output: (B, 1, 1024, 1024) with Sigmoid
+
+DBHead (CORRECT ✅)
+  File: src/models/heads.py
+  Lines: 426-534
+  Output: (B, 2, 1024, 1024) with Sigmoid
+
+BlockDetector (NEEDS FIX ❌)
+  File: src/models/heads.py
+  Lines: 536-712
+  Method: forward() at line 652
+  Issue: Outputs (B, 64512, 6) instead of (B, 64512, 7)
+
+Export Wrapper (MAY NEED UPDATE)
+  File: scripts/export.py
+  Lines: 95-122
+  Class: ExportableModelV10
+  Issue: Passes through block output without conversion
+
+TextDetectorInference (NO ISSUES)
+  File: src/models/heads.py
+  Lines: 961-1005
+  Output: (blocks, mask, lines)
+
+================================================================================
+CONFIDENCE LEVELS
+================================================================================
+
+Finding                          Confidence    Evidence
+─────────────────────────────────────────────────────────────────
+seg output matches original         HIGH       Direct shape & code inspection
+det output matches original         HIGH       Direct shape & code inspection
+blk output mismatch exists          HIGH       Code clearly outputs 6, not 7
+7th value purpose/identity          LOW        Requires reverse engineering
+Solution difficulty                 MEDIUM     Estimated 2-4 hours to fix
+
+================================================================================
+ESTIMATED EFFORT TO FIX
+================================================================================
+
+Understanding 7th value:     1-2 hours (reverse engineering)
+Implementing 7th value:      30-60 minutes (code change)
+Testing & validation:        1-2 hours (ONNX export, comparison)
+Documentation update:        30 minutes
+
+Total: ~4-6 hours
+
+================================================================================
+END OF QUICK REFERENCE
+================================================================================

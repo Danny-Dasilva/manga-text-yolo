@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-text-detector"
+version = "2.0.0"
+description = "Comic/Manga text detection using YOLOv11 with UNet segmentation and DBNet text line detection"
+readme = "README.md"
+license = {text = "GPL-3.0"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Comic Text Detector Contributors"}
+]
+keywords = ["yolo", "yolov11", "text-detection", "manga", "comic", "ocr", "segmentation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+    "torch>=2.3.0",
+    "torchvision>=0.18.0",
+    "ultralytics>=8.3.0",
+    "albumentations>=1.4.0",
+    "opencv-python>=4.9.0",
+    "Pillow>=10.0.0",
+    "onnx>=1.16.0",
+    "onnxruntime-gpu>=1.18.0",
+    "onnxsim>=0.4.0",
+    "numpy>=1.26.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+    "torchinfo>=1.8.0",
+    "wandb",
+    "trdg",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+tensorrt = [
+    "tensorrt>=8.6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dmMaze/comic-text-detector"
+Repository = "https://github.com/dmMaze/comic-text-detector"
+Issues = "https://github.com/dmMaze/comic-text-detector/issues"
+
+[project.scripts]
+comic-detect = "comic_text_detector.scripts.inference:main"
+comic-train = "comic_text_detector.scripts.train:main"
+comic-export = "comic_text_detector.scripts.export:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long (handled by black)
+    "B008", # do not perform function calls in argument defaults
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=comic_text_detector --cov-report=term-missing"

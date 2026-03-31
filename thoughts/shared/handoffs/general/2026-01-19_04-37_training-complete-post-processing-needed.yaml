@@ -1,0 +1,74 @@
+---
+session: yolo26-training
+date: 2026-01-19
+status: partial
+outcome: PARTIAL_MINUS
+---
+
+goal: Complete 3-phase YOLO26 comic text detector training (seg, detection, block)
+now: Fix block detection post-processing - model outputs 15k+ raw anchors instead of filtered boxes
+test: |
+  source .venv/bin/activate && python scripts/visualize_trained.py \
+    --checkpoint runs/block_yolo26/best.pt --limit 3 --output outputs/test_vis
+
+done_this_session:
+  - task: Resumed Phase 2 (DBNet) training from epoch 15, early stopped at epoch 62
+    files: [runs/detection_yolo26/best.pt, runs/detection_yolo26/last.pt]
+  - task: Completed Phase 3 (Block Detection) training - all 50 epochs
+    files: [runs/block_yolo26/best.pt, runs/block_yolo26/last.pt]
+  - task: Created visualization script for trained model inference
+    files: [scripts/visualize_trained.py]
+  - task: Generated sample visualizations from trained model
+    files: [outputs/trained_visualizations/]
+
+blockers:
+  - Block detection outputs raw anchor predictions (15k+ boxes) without proper filtering
+  - ONNX export fails due to architecture mismatch (YOLO26 vs YOLOv10 expected)
+
+questions:
+  - Is the block detector using one-to-one (NMS-free) or one-to-many assignment?
+  - Should confidence filtering be applied in inference/detector.py or model forward?
+
+decisions:
+  - early_stopping_phase2: Stopped at epoch 62 (patience 20), best at epoch 42 with val_loss 1.627
+  - full_training_phase3: Ran all 50 epochs, best at epoch 49 with val_loss 3.944
+
+findings:
+  - training_phases_complete: |
+      Phase 1: Seg - epoch 69, loss 0.25 (from prior session)
+      Phase 2: Det - epoch 42, loss 1.63 (early stopped at 62)
+      Phase 3: Block - epoch 49, loss 3.94 (full 50 epochs)
+  - block_output_issue: |
+      Model outputs 15936+ text_blocks per image - raw anchor predictions
+      Post-processing/NMS not working correctly
+      src/inference/detector.py:121 sets training_mode=False for NMS-free
+  - export_mismatch: |
+      scripts/export.py expects YOLOv10 architecture
+      Checkpoint uses YOLO26 backbone - different layer structure
+
+worked:
+  - Using src/inference/detector.TextDetector for checkpoint loading (handles block_det init)
+  - Phase training progression with proper freezing (freeze-seg, freeze-det flags)
+  - TensorBoard monitoring in background
+
+failed:
+  - Direct export.py with YOLO26 checkpoint - architecture mismatch error
+  - Manual model loading via create_text_detector - 801 missing keys
+
+next:
+  - Fix block detection post-processing in src/inference/detector.py
+  - Investigate why text_blocks count is ~16k instead of ~10-15 per image
+  - Check BlockDetector.training_mode and one-to-one head usage
+  - Update export.py to support YOLO26 backbone architecture
+  - Compare trained model outputs with original comic-text-detector.onnx
+  - Validate output format matches original (blk, seg, det shapes)
+
+files:
+  created:
+    - scripts/visualize_trained.py
+    - outputs/trained_visualizations/vis_*.jpg (5 images)
+  modified:
+    - runs/detection_yolo26/best.pt (Phase 2 complete)
+    - runs/detection_yolo26/last.pt
+    - runs/block_yolo26/best.pt (Phase 3 complete)
+    - runs/block_yolo26/last.pt

@@ -1,0 +1,88 @@
+---
+session: yolo26-training
+date: 2026-01-19
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Fix YOLO26 block detection inference and compare to original comic-text-detector
+now: Complete combined 3-output inference to match original model format (blk, seg, det)
+test: |
+  source .venv/bin/activate && python scripts/visualize_trained.py \
+    --checkpoint runs/block_yolo26/best.pt --limit 3 --output outputs/test_vis --conf-thresh 0.1
+
+done_this_session:
+  - task: Fixed critical EMA weight loading bug - _orig_mod prefix from torch.compile not stripped
+    files: [src/inference/detector.py:111-120]
+  - task: Updated export.py to read backbone_name from checkpoint config (supports YOLO26)
+    files: [scripts/export.py:196-201, scripts/export.py:242, scripts/export.py:256-260]
+  - task: Created comparison benchmark script comparing YOLO26 vs reference comic-text-detector
+    files: [scripts/compare_models.py]
+  - task: Created evaluation script comparing detections to ground truth annotations
+    files: [scripts/evaluate_vs_gt.py]
+  - task: Started combined 3-output inference script (incomplete)
+    files: [scripts/combined_inference.py]
+
+blockers:
+  - Combined inference needs fix - UnetHead forward_mode handling incorrect
+  - Need to use mode != TEXTDET_MASK and != TEXTDET_DET to get (mask, features) tuple
+
+questions:
+  - Should combined model also include NMS post-processing for better precision?
+  - Is conf_threshold 0.1 appropriate or should model be retrained for higher confidence?
+
+decisions:
+  - strip_compile_prefix: torch.compile adds _orig_mod. prefix to state dict keys, must strip before loading
+  - conf_threshold_0.1: Lower threshold needed because o2o head outputs lower confidence by design
+
+findings:
+  - weight_loading_bug: |
+      EMA weights had _orig_mod. prefix from torch.compile during training.
+      Fresh inference model doesn't have this prefix, causing silent load failure with strict=False.
+      Result: o2o head had random weights (confidence ~0.5 for everything).
+      Fix: Strip prefix in src/inference/detector.py before load_state_dict.
+  - checkpoint_structure: |
+      Phase 1 (seg): backbone + seg_net (218 keys)
+      Phase 2 (det): backbone + seg_net (109 partial) + dbnet (110 keys)
+      Phase 3 (block): backbone + seg_net (218 keys) + block_det (48 keys)
+      Each phase only saves trainable params - need to combine all 3 for full model.
+  - output_format_comparison: |
+      Original CTD: blk [1,64512,7], seg [1,1,1024,1024], det [1,2,1024,1024]
+      Our YOLO26: blk only (mask/lines zeros in block mode)
+      Format differs: CTD uses [cx,cy,w,h,obj,cls0,cls1], ours uses decoded [x,y,w,h,conf,cls]
+  - evaluation_results: |
+      At conf>0.1: P=0.116, R=0.594, F1=0.194
+      At conf>0.15: P=0.292, R=0.328, F1=0.309
+      Model detects text lines, GT has block-level boxes - granularity mismatch
+  - speed_comparison: |
+      YOLO26 PyTorch: 38.8ms avg
+      Reference ONNX: 15.4ms avg
+      Expected - ONNX optimized, ours not exported yet
+
+worked:
+  - Stripping _orig_mod. prefix fixed weight loading completely
+  - TextDetector class properly initializes block_det when training_phase >= 3
+  - Visualization shows good text detection on manga images
+
+failed:
+  - Combined inference - seg_net forward mode handling needs different approach
+  - Direct checkpoint combination without understanding forward modes
+
+next:
+  - Fix combined_inference.py - use forward_mode=2 (else branch) for (mask, features) return
+  - UnetHead line 418 returns (mask, [f128, f64, u32]) when mode != MASK and != DET
+  - Test combined 3-output inference produces all outputs
+  - Consider ONNX export for speed parity with reference model
+  - Evaluate if retraining with higher o2o loss weight improves confidence scores
+
+files:
+  created:
+    - scripts/compare_models.py
+    - scripts/evaluate_vs_gt.py
+    - scripts/combined_inference.py
+    - outputs/comparison/*.jpg
+    - outputs/evaluation/*.jpg
+    - outputs/test_vis/*.jpg
+  modified:
+    - src/inference/detector.py
+    - scripts/export.py

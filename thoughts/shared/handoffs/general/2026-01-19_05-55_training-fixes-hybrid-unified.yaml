@@ -1,0 +1,95 @@
+---
+session: comic-text-detector-training-refactor
+date: 2026-01-19
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Fix all training issues and implement hybrid unified training pipeline
+now: Wait for hybrid training agent to complete, then run unified training
+test: |
+  source .venv/bin/activate && python scripts/combined_inference.py --limit 3 --output outputs/test_fixes
+
+done_this_session:
+  - task: Resumed from handoff, ran combined inference showing weak outputs
+    files: [scripts/combined_inference.py]
+  - task: Spawned 10 research agents to analyze original vs our architecture
+    files: [thoughts/shared/research/2026-01-19_training-architecture-analysis.md]
+  - task: Fixed block confidence calculation (obj × cls instead of obj only)
+    files: [src/inference/detector.py:494-497, scripts/combined_inference.py:234-236]
+  - task: Fixed DBNet binarize head bias initialization (sigmoid(2)≈0.88)
+    files: [src/models/heads.py:469-470]
+  - task: Fixed DBNet loss beta weight (2.0 → 1.0)
+    files: [src/training/losses.py:230]
+  - task: Fixed FocalLoss alpha (0.25 → 0.5)
+    files: [src/training/losses.py:667, src/training/losses.py:830]
+  - task: Rebalanced loss weights (obj 1.5→2.5, cls 1.0→1.5)
+    files: [src/training/losses.py:648-649]
+  - task: Added torch.no_grad for frozen UNet forward pass
+    files: [src/models/heads.py:916-917]
+  - task: Fixed BatchNorm state for frozen layers (train→eval)
+    files: [src/models/heads.py:859-872]
+  - task: Removed weight deletion in initialize_db (keeps checkpoint continuity)
+    files: [src/models/heads.py:801-806]
+  - task: Hybrid unified training implementation (agent still running)
+    files: [train.py, src/training/trainer.py]
+
+blockers:
+  - Hybrid unified training agent still running (agent a3cd268)
+
+questions:
+  - Should we use ProgLoss (dynamic loss weighting) from YOLO26?
+  - Should we implement STAL (small-target-aware label assignment)?
+  - GT is block-level but model detects line-level - accept or re-annotate?
+
+decisions:
+  - hybrid_over_phased: 3-phase training causes weight corruption and poor feature sharing
+  - obj_x_cls_confidence: YOLO confidence should be objectness × class_score, not just objectness
+  - bias_init_2: DBNet binarize head needs positive bias init to avoid sigmoid(0)=0.5
+  - balanced_loss_weights: Box loss was dominating (5.0 vs 1.5 obj), rebalanced for confidence
+  - keep_unet_layers: Deleting upconv3-6 after initialize_db broke checkpoint loading
+
+findings:
+  - original_ctd_architecture: |
+      Original uses 2-phase (seg+det) + separate YOLOv5 block detector.
+      We tried 3-phase integrated approach which introduced more bugs.
+  - granularity_mismatch: |
+      GT has 22 block-level boxes, model detects 113 line-level boxes.
+      This is expected behavior (5.1x ratio = ~5 lines per block).
+  - dbnet_weak_output: |
+      Max shrink_map 0.6 caused by: no bias init + beta=2.0 loss imbalance.
+      Fix: bias=2.0 init + beta=1.0 loss weight.
+  - block_low_confidence: |
+      Max confidence 0.097 caused by: using pred[4] only (not obj×cls),
+      FocalLoss alpha=0.25 (3x background weight), box loss dominating.
+  - yolo26_missing_features: |
+      Not using ProgLoss (dynamic weighting), STAL (small target), MuSGD optimizer.
+
+worked:
+  - 10 parallel research agents provided comprehensive analysis
+  - 10 parallel fix agents completed all quick fixes efficiently
+  - TextDetectorInference class correctly combines all heads for inference
+  - combined_inference.py properly loads weights from 3 separate checkpoints
+
+failed:
+  - 3-phase sequential training had weight corruption and poor feature sharing
+  - Phase 2 deleted seg_net layers causing checkpoint incompatibility
+  - Using only pred[4] for confidence gave ~0.1 instead of ~0.5
+
+next:
+  - Wait for hybrid unified training agent to complete
+  - Run unified training: python train.py --unified --unified-phase1-epochs 50 --unified-phase2-epochs 100
+  - Test combined inference with fixed model
+  - Consider implementing ProgLoss and STAL from YOLO26
+  - Decide on GT granularity (accept line-level or re-annotate)
+
+files:
+  created:
+    - thoughts/shared/research/2026-01-19_training-architecture-analysis.md
+  modified:
+    - src/inference/detector.py
+    - src/models/heads.py
+    - src/training/losses.py
+    - scripts/combined_inference.py
+    - train.py (pending - hybrid training agent)
+    - src/training/trainer.py (pending - hybrid training agent)
