@@ -173,16 +173,57 @@ for t in [0.1, 0.3, 0.5, 0.7, 0.9]:
 | `src/inference/detector.py` | BGR→RGB fix, NMS (IoU=0.4), max 100 detections, min area 200px, merged head confidence |
 | `src/training/trainer.py` | Phase-specific train mode, block_lr=1e-3, min_lr=1e-4, ema_decay=0.9999 |
 
+## Data & Weights Setup (Not in Git)
+
+Large files are NOT in git. To set up on a new machine:
+
+### Required for Training
+```bash
+# 1. Backbone weights (download or copy from NAS)
+# yolo26s.pt goes in repo root
+cp /path/to/nas/manga-text-yolo/yolo26s.pt .
+
+# 2. Phase 2 checkpoint (base for phase 3 training)
+mkdir -p runs/detection_v6
+cp /path/to/nas/manga-text-yolo/runs/detection_v6/best.pt runs/detection_v6/
+
+# 3. Training data (49K train + 10K val images + annotations)
+mkdir -p data/merged_train data/merged_val
+# Images
+cp -r /path/to/nas/manga-text-yolo/data/merged_train/images data/merged_train/
+cp -r /path/to/nas/manga-text-yolo/data/merged_val/images data/merged_val/
+# Ensemble block annotations
+cp -r /path/to/nas/manga-text-yolo/data/merged_train/block_annotations_ensemble data/merged_train/
+cp -r /path/to/nas/manga-text-yolo/data/merged_val/block_annotations_ensemble data/merged_val/
+# GT annotations (for evaluation)
+cp -r /path/to/nas/manga-text-yolo/data/merged_val/annotations data/merged_val/
+```
+
+### Optional
+```bash
+# Teacher model (for comparison only)
+mkdir -p models/animetext-yolo/yolo12x_animetext
+cp /path/to/nas/manga-text-yolo/models/animetext-yolo/yolo12x_animetext/model.onnx models/animetext-yolo/yolo12x_animetext/
+
+# Previous training runs (for reference)
+cp -r /path/to/nas/manga-text-yolo/runs/block_ensemble_v2 runs/
+cp -r /path/to/nas/manga-text-yolo/runs/block_ensemble_v4_fixed runs/
+```
+
 ## Key Paths
 
-| Path | Description |
-|------|-------------|
-| `runs/block_ensemble_v2/best.pt` | Base checkpoint (backbone/seg/det weights) |
-| `runs/block_ensemble_v4_fixed/best.pt` | Round 1 model (epoch 76, max conf 0.35) |
-| `runs/block_ensemble_v5/` | Round 2 training output (TO BE CREATED) |
-| `data/merged_train/block_annotations_ensemble/` | 49,213 ensemble annotations |
-| `data/merged_val/block_annotations_ensemble/` | 9,859 ensemble annotations |
-| `models/animetext-yolo/yolo12x_animetext/model.onnx` | Teacher model for comparison |
+| Path | Description | In Git? |
+|------|-------------|---------|
+| `src/models/` | Model architecture (backbone, heads, detector) | Yes |
+| `src/data/` | Dataset loaders | Yes |
+| `src/training/` | Trainer, losses (with all v5 fixes) | Yes |
+| `src/inference/` | Inference pipeline (with NMS, BGR fix) | Yes |
+| `scripts/train.py` | Training script | Yes |
+| `yolo26s.pt` | Backbone weights | No — NAS |
+| `runs/detection_v6/best.pt` | Phase 2 checkpoint (base for v5) | No — NAS |
+| `data/merged_train/` | 49,213 training images + annotations | No — NAS |
+| `data/merged_val/` | 9,859 validation images + annotations | No — NAS |
+| `models/animetext-yolo/` | Teacher model (YOLO12-X) | No — NAS |
 
 ## Training History Summary
 
